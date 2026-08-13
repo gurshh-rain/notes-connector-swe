@@ -26,6 +26,7 @@ import {
 import MindMapNode from "./MindMapNode";
 import GroupNode from "./GroupNode";
 import DocPanel from "./DocPanel";
+import MiniMapEdges from "./MiniMapEdges";
 import type { MindMap, MindMapNode as MMNode } from "@/lib/types";
 import {
   PlusIcon,
@@ -33,6 +34,7 @@ import {
   PageIcon,
   SparkleIcon,
   TrashIcon,
+  CloseIcon,
 } from "./Icon";
 
 interface Props {
@@ -97,6 +99,7 @@ function WorkspaceInner({
   const [openNodeId, setOpenNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
+  const [showHint, setShowHint] = useState(true);
   const [selectBox, setSelectBox] = useState<{ startX: number; startY: number; endX: number; endY: number } | null>(null);
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
   const rf = useReactFlow();
@@ -702,8 +705,9 @@ function WorkspaceInner({
             zoomable
             nodeColor={() => "#0075de"}
             maskColor="rgba(246,245,244,0.7)"
-            style={{ background: "var(--color-canvas)" }}
+            style={{ background: "var(--color-canvas)", width: 200, height: 150 }}
           />
+          <MiniMapEdges />
           <Controls
             showInteractive={false}
             style={{
@@ -735,11 +739,21 @@ function WorkspaceInner({
           </div>
         )}
 
-        <div className="canvas__hint">
-          Left drag to pan. Right drag on the canvas to box-select. Delete to
-          remove selected. Drag a node's edge to connect, double-click to
-          rename, click to open notes.
-        </div>
+        {showHint && (
+          <div className="canvas__hint">
+            <button
+              type="button"
+              className="canvas__hint__close"
+              aria-label="Close hint"
+              onClick={() => setShowHint(false)}
+            >
+              <CloseIcon size={12} />
+            </button>
+            Left drag to pan. Right drag on the canvas to box-select. Delete to
+            remove selected. Drag a node's edge to connect, double-click to
+            rename, click to open notes.
+          </div>
+        )}
 
         {openNode && (
           <DocPanel
