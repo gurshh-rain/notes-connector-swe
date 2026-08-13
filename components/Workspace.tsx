@@ -720,12 +720,7 @@ function WorkspaceInner({
           <MiniMapEdges />
           <Controls
             showInteractive={false}
-            style={{
-              border: "1px solid var(--color-hairline)",
-              borderRadius: "var(--rounded-md)",
-              boxShadow: "var(--shadow-1)",
-              overflow: "hidden",
-            }}
+            showFitView={false}
           />
         </ReactFlow>
 

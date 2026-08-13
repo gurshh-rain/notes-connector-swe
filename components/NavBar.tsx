@@ -47,7 +47,7 @@ export default function NavBar() {
           <span>Connector</span>
         </div>
         <nav className="nav-bar__links" aria-label="Primary">
-          <Link className="nav-bar__link" href="#">
+          <Link className="nav-bar__link" href="/coming-soon">
             Product
           </Link>
           <button
@@ -57,13 +57,10 @@ export default function NavBar() {
           >
             Documentation
           </button>
-          <Link className="nav-bar__link" href="#">
-            Pricing
-          </Link>
-          <Link className="nav-bar__link" href="#">
+          <Link className="nav-bar__link" href="/coming-soon">
             Resources
           </Link>
-          <Link className="nav-bar__link" href="#">
+          <Link className="nav-bar__link" href="/coming-soon">
             Contact
           </Link>
         </nav>
@@ -77,12 +74,12 @@ export default function NavBar() {
           >
             {isDark ? <SunIcon size={16} /> : <MoonIcon size={16} />}
           </button>
-          <Link className="nav-bar__link" href="#">
+          <Link className="nav-bar__link" href="/coming-soon">
             Log in
           </Link>
-          <button className="btn-utility" type="button">
+          <Link className="btn-utility" href="/coming-soon">
             Get Connector free
-          </button>
+          </Link>
         </div>
       </header>
 

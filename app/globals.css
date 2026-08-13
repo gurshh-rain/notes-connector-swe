@@ -296,13 +296,15 @@ textarea {
   transform: scale(0.97);
 }
 
-.btn-utility {
+.btn-utility,
+a.btn-utility {
   border-radius: var(--rounded-md);
   padding: 4px 14px;
   background: var(--color-surface);
   color: var(--color-ink);
   border: 1px solid var(--color-hairline);
   font: var(--type-button);
+  text-decoration: none;
 }
 
 .btn-utility:hover {
@@ -672,7 +674,7 @@ textarea {
 
 .canvas__hint {
   position: absolute;
-  bottom: 16px;
+  bottom: 60px;
   left: 16px;
   z-index: 5;
   background: var(--color-surface);
@@ -771,7 +773,36 @@ textarea {
 }
 
 .react-flow__controls {
-  display: none;
+  bottom: 16px !important;
+  left: 16px !important;
+  z-index: 5;
+  background: var(--color-surface) !important;
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--rounded-md);
+  box-shadow: var(--shadow-1);
+}
+
+.react-flow__controls-button {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-surface);
+  color: var(--color-ink);
+  border: 1px solid var(--color-hairline);
+  cursor: pointer;
+}
+
+.react-flow__controls-button:hover {
+  background: var(--color-canvas-soft);
+}
+
+.react-flow__controls-button svg {
+  width: 16px;
+  height: 16px;
+  fill: var(--color-ink) !important;
+  stroke: var(--color-ink) !important;
 }
 
 .react-flow__minimap {
@@ -1421,4 +1452,31 @@ textarea {
 .doc-modal__content strong {
   color: var(--color-ink);
   font-weight: 500;
+}
+
+/* ---------- Coming soon page ---------- */
+
+.coming-soon {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  min-height: 100vh;
+  padding: 24px;
+  text-align: center;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+}
+
+.coming-soon h1 {
+  font: var(--type-title);
+  font-size: 28px;
+  margin: 0;
+}
+
+.coming-soon p {
+  font: var(--type-body);
+  color: var(--color-ink-muted);
+  margin: 0;
 }
