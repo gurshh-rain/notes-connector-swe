@@ -1,0 +1,592 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { MindMap, MindMapNode, MindMapEdge, StickerColor } from "./types";
+
+const STORAGE_KEY = "connector:maps:v1";
+const ACTIVE_KEY = "connector:active:v1";
+
+const uid = () =>
+  typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `id_${Math.random().toString(36).slice(2, 10)}_${Date.now().toString(36)}`;
+
+const sampleNote = (title: string) =>
+  `<p>Notes for <strong>${title || "this node"}</strong> live here. Use the toolbar above for headings, lists, quotes and code.</p>`;
+
+const defaultMap = (): MindMap => {
+  const centerId = uid();
+  const leftId = uid();
+  const rightId = uid();
+  const deepId = uid();
+  const now = Date.now();
+  return {
+    id: uid(),
+    title: "My first mind map",
+    emoji: "🧭",
+    createdAt: now,
+    updatedAt: now,
+    nodes: [
+      {
+        id: centerId,
+        title: "Start here",
+        note: sampleNote("Start here"),
+        color: "purple",
+        tags: [],
+    position: { x: 0, y: 0 },
+      },
+      {
+        id: leftId,
+        title: "An idea",
+        note: sampleNote("An idea"),
+        color: "sky",
+        tags: [],
+    position: { x: -280, y: 120 },
+      },
+      {
+        id: rightId,
+        title: "Another branch",
+        note: sampleNote("Another branch"),
+        color: "pink",
+        tags: [],
+    position: { x: 280, y: 120 },
+      },
+      {
+        id: deepId,
+        title: "A sub-idea",
+        note: sampleNote("A sub-idea"),
+        color: "teal",
+        tags: [],
+    position: { x: 520, y: 260 },
+      },
+    ],
+    edges: [
+      { id: uid(), source: centerId, target: leftId },
+      { id: uid(), source: centerId, target: rightId },
+      { id: uid(), source: rightId, target: deepId },
+    ],
+  };
+};
+
+const load = (): { maps: MindMap[]; activeId: string | null } => {
+  if (typeof window === "undefined") return { maps: [], activeId: null };
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    const activeId = localStorage.getItem(ACTIVE_KEY);
+    if (!raw) {
+      const first = defaultMap();
+      localStorage.setItem(STORAGE_KEY, JSON.stringify([first]));
+      localStorage.setItem(ACTIVE_KEY, first.id);
+      return { maps: [first], activeId: first.id };
+    }
+    const parsed = JSON.parse(raw) as MindMap[];
+    parsed.forEach((m) => m.nodes.forEach((n) => { n.tags = n.tags ?? []; }));
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      const first = defaultMap();
+      return { maps: [first], activeId: first.id };
+    }
+    return { maps: parsed, activeId: activeId ?? parsed[0].id };
+  } catch {
+    const first = defaultMap();
+    return { maps: [first], activeId: first.id };
+  }
+};
+
+const persist = (maps: MindMap[], activeId: string | null) => {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(maps));
+  if (activeId) localStorage.setItem(ACTIVE_KEY, activeId);
+};
+
+export interface UseMaps {
+  ready: boolean;
+  maps: MindMap[];
+  activeMap: MindMap | null;
+  activeId: string | null;
+  setActiveId: (id: string) => void;
+  createMap: () => string;
+  deleteMap: (id: string) => void;
+  renameMap: (id: string, title: string) => void;
+  setMapEmoji: (id: string, emoji: string) => void;
+  updateActive: (mutator: (m: MindMap) => MindMap) => void;
+  upsertNode: (node: MindMapNode) => void;
+  removeNode: (ids: string | string[]) => void;
+  setNodeColor: (id: string, color: StickerColor) => void;
+  setNodeNote: (id: string, note: string) => void;
+  setNodeTitle: (id: string, title: string) => void;
+  setNodeTags: (id: string, tags: string[]) => void;
+  addNode: (position?: { x: number; y: number }) => string;
+  addGroup: (position?: { x: number; y: number }) => string;
+  addChildToGroup: (groupId: string, position?: { x: number; y: number }) => string;
+  groupNodes: (nodeIds: string[]) => void;
+  toggleGroup: (id: string) => void;
+  addEdge: (connection: {
+    source: string;
+    target: string;
+    sourceHandle?: string | null;
+    targetHandle?: string | null;
+  }) => void;
+  removeEdge: (id: string) => void;
+}
+
+export function useMaps(): UseMaps {
+  const [maps, setMaps] = useState<MindMap[]>([]);
+  const [activeId, setActiveIdState] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
+  const activeIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const { maps: loaded, activeId: a } = load();
+    setMaps(loaded);
+    setActiveIdState(a);
+    activeIdRef.current = a;
+    setReady(true);
+  }, []);
+
+  const write = useCallback(
+    (next: MindMap[], nextActive: string | null) => {
+      setMaps(next);
+      setActiveIdState(nextActive);
+      activeIdRef.current = nextActive;
+      persist(next, nextActive);
+    },
+    [],
+  );
+
+  const updateActive = useCallback(
+    (mutator: (m: MindMap) => MindMap) => {
+      const a = activeIdRef.current;
+      if (!a) return;
+      const next = maps.map((m) =>
+        m.id === a ? { ...mutator(m), updatedAt: Date.now() } : m,
+      );
+      write(next, a);
+    },
+    [maps, write],
+  );
+
+  const setActiveId = useCallback(
+    (id: string) => {
+      write(maps, id);
+    },
+    [maps, write],
+  );
+
+  const createMap = useCallback((): string => {
+    const m = defaultMap();
+    const next = [...maps, m];
+    write(next, m.id);
+    return m.id;
+  }, [maps, write]);
+
+  const deleteMap = useCallback(
+    (id: string) => {
+      const next = maps.filter((m) => m.id !== id);
+      let active = activeIdRef.current;
+      if (active === id) {
+        active = next[0]?.id ?? null;
+        if (!active) {
+          const fresh = defaultMap();
+          next.push(fresh);
+          active = fresh.id;
+        }
+      }
+      write(next, active);
+    },
+    [maps, write],
+  );
+
+  const renameMap = useCallback(
+    (id: string, title: string) => {
+      const next = maps.map((m) =>
+        m.id === id ? { ...m, title, updatedAt: Date.now() } : m,
+      );
+      write(next, activeIdRef.current);
+    },
+    [maps, write],
+  );
+
+  const setMapEmoji = useCallback(
+    (id: string, emoji: string) => {
+      const next = maps.map((m) =>
+        m.id === id ? { ...m, emoji, updatedAt: Date.now() } : m,
+      );
+      write(next, activeIdRef.current);
+    },
+    [maps, write],
+  );
+
+  const activeMap = maps.find((m) => m.id === activeId) ?? null;
+
+  const addNode = useCallback(
+    (position?: { x: number; y: number }): string => {
+      const a = activeIdRef.current;
+      if (!a) return "";
+      const id = uid();
+      const map = maps.find((m) => m.id === a);
+      const last = map?.nodes[map.nodes.length - 1];
+      const pos =
+        position ??
+        (last
+          ? { x: last.position.x + 40, y: last.position.y + 80 }
+          : { x: 80, y: 80 });
+      const node: MindMapNode = {
+        id,
+        title: "New idea",
+        note: sampleNote("New idea"),
+        color: "sky",
+        tags: [],
+        position: pos,
+      };
+      const next = maps.map((m) =>
+        m.id === a
+          ? { ...m, nodes: [...m.nodes, node], updatedAt: Date.now() }
+          : m,
+      );
+      write(next, a);
+      return id;
+    },
+    [maps, write],
+  );
+
+  const addGroup = useCallback(
+    (position?: { x: number; y: number }): string => {
+      const a = activeIdRef.current;
+      if (!a) return "";
+      const id = uid();
+      const map = maps.find((m) => m.id === a);
+      const last = map?.nodes[map.nodes.length - 1];
+      const pos =
+        position ??
+        (last
+          ? { x: last.position.x + 80, y: last.position.y + 40 }
+          : { x: 80, y: 80 });
+      const group: MindMapNode = {
+        id,
+        title: "New group",
+        note: sampleNote("New group"),
+        color: "sky",
+        tags: [],
+        isGroup: true,
+        expanded: true,
+        position: pos,
+      };
+      const next = maps.map((m) =>
+        m.id === a
+          ? { ...m, nodes: [...m.nodes, group], updatedAt: Date.now() }
+          : m,
+      );
+      write(next, a);
+      return id;
+    },
+    [maps, write],
+  );
+
+  const addChildToGroup = useCallback(
+    (groupId: string, position?: { x: number; y: number }): string => {
+      const a = activeIdRef.current;
+      if (!a) return "";
+      const id = uid();
+      const pos = position ?? { x: 40, y: 80 };
+      const child: MindMapNode = {
+        id,
+        title: "New child",
+        note: sampleNote("New child"),
+        color: "purple",
+        tags: [],
+        parentId: groupId,
+        position: pos,
+      };
+      const next = maps.map((m) =>
+        m.id === a
+          ? { ...m, nodes: [...m.nodes, child], updatedAt: Date.now() }
+          : m,
+      );
+      write(next, a);
+      return id;
+    },
+    [maps, write],
+  );
+
+  const groupNodes = useCallback(
+    (nodeIds: string[]) => {
+      const a = activeIdRef.current;
+      if (!a) return;
+      const idSet = new Set(nodeIds);
+      const map = maps.find((m) => m.id === a);
+      if (!map) return;
+      const selected = map.nodes.filter(
+        (n) => idSet.has(n.id) && !n.parentId && !n.isGroup,
+      );
+      if (selected.length === 0) return;
+
+      const PADDING = { x: 40, y: 60 };
+      const minX = Math.min(...selected.map((n) => n.position.x)) - PADDING.x;
+      const minY = Math.min(...selected.map((n) => n.position.y)) - PADDING.y;
+      const maxX = Math.max(...selected.map((n) => n.position.x)) + 180 + PADDING.x;
+      const maxY = Math.max(...selected.map((n) => n.position.y)) + 80 + PADDING.y;
+      const groupPos = { x: minX, y: minY };
+
+      const groupId = uid();
+      const group: MindMapNode = {
+        id: groupId,
+        title: "Group",
+        note: sampleNote("Group"),
+        color: "sky",
+        tags: [],
+        isGroup: true,
+        expanded: true,
+        position: groupPos,
+      };
+
+      const next = maps.map((m) =>
+        m.id === a
+          ? {
+              ...m,
+              nodes: [
+                ...m.nodes.map((n) =>
+                  idSet.has(n.id) && !n.parentId && !n.isGroup
+                    ? {
+                        ...n,
+                        parentId: groupId,
+                        position: {
+                          x: n.position.x - groupPos.x,
+                          y: n.position.y - groupPos.y,
+                        },
+                      }
+                    : n,
+                ),
+                group,
+              ],
+              updatedAt: Date.now(),
+            }
+          : m,
+      );
+      write(next, a);
+    },
+    [maps, write],
+  );
+
+  const toggleGroup = useCallback(
+    (id: string) => {
+      const a = activeIdRef.current;
+      if (!a) return;
+      const next = maps.map((m) =>
+        m.id === a
+          ? {
+              ...m,
+              nodes: m.nodes.map((n) =>
+                n.id === id ? { ...n, expanded: !n.expanded } : n,
+              ),
+              updatedAt: Date.now(),
+            }
+          : m,
+      );
+      write(next, a);
+    },
+    [maps, write],
+  );
+
+  const upsertNode = useCallback(
+    (node: MindMapNode) => {
+      const a = activeIdRef.current;
+      if (!a) return;
+      const next = maps.map((m) => {
+        if (m.id !== a) return m;
+        const exists = m.nodes.some((n) => n.id === node.id);
+        return {
+          ...m,
+          nodes: exists
+            ? m.nodes.map((n) => (n.id === node.id ? node : n))
+            : [...m.nodes, node],
+          updatedAt: Date.now(),
+        };
+      });
+      write(next, a);
+    },
+    [maps, write],
+  );
+
+  const removeNode = useCallback(
+    (ids: string | string[]) => {
+      const a = activeIdRef.current;
+      if (!a) return;
+      const idSet = new Set(Array.isArray(ids) ? ids : [ids]);
+      const next = maps.map((m) =>
+        m.id === a
+          ? {
+              ...m,
+              nodes: m.nodes.filter(
+                (n) =>
+                  !idSet.has(n.id) &&
+                  !(n.parentId && idSet.has(n.parentId)),
+              ),
+              edges: m.edges.filter(
+                (e) => !idSet.has(e.source) && !idSet.has(e.target),
+              ),
+              updatedAt: Date.now(),
+            }
+          : m,
+      );
+      write(next, a);
+    },
+    [maps, write],
+  );
+
+  const setNodeColor = useCallback(
+    (id: string, color: StickerColor) => {
+      const a = activeIdRef.current;
+      if (!a) return;
+      const next = maps.map((m) =>
+        m.id === a
+          ? {
+              ...m,
+              nodes: m.nodes.map((n) =>
+                n.id === id ? { ...n, color } : n,
+              ),
+              updatedAt: Date.now(),
+            }
+          : m,
+      );
+      write(next, a);
+    },
+    [maps, write],
+  );
+
+  const setNodeNote = useCallback(
+    (id: string, note: string) => {
+      const a = activeIdRef.current;
+      if (!a) return;
+      const next = maps.map((m) =>
+        m.id === a
+          ? {
+              ...m,
+              nodes: m.nodes.map((n) =>
+                n.id === id ? { ...n, note } : n,
+              ),
+              updatedAt: Date.now(),
+            }
+          : m,
+      );
+      write(next, a);
+    },
+    [maps, write],
+  );
+
+  const setNodeTitle = useCallback(
+    (id: string, title: string) => {
+      const a = activeIdRef.current;
+      if (!a) return;
+      const next = maps.map((m) =>
+        m.id === a
+          ? {
+              ...m,
+              nodes: m.nodes.map((n) =>
+                n.id === id ? { ...n, title } : n,
+              ),
+              updatedAt: Date.now(),
+            }
+          : m,
+      );
+      write(next, a);
+    },
+    [maps, write],
+  );
+
+  const setNodeTags = useCallback(
+    (id: string, tags: string[]) => {
+      const a = activeIdRef.current;
+      if (!a) return;
+      const next = maps.map((m) =>
+        m.id === a
+          ? {
+              ...m,
+              nodes: m.nodes.map((n) =>
+                n.id === id ? { ...n, tags } : n,
+              ),
+              updatedAt: Date.now(),
+            }
+          : m,
+      );
+      write(next, a);
+    },
+    [maps, write],
+  );
+
+  const addEdge = useCallback(
+    (connection: {
+      source: string;
+      target: string;
+      sourceHandle?: string | null;
+      targetHandle?: string | null;
+    }) => {
+      if (connection.source === connection.target) return;
+      const a = activeIdRef.current;
+      if (!a) return;
+      const next = maps.map((m) => {
+        if (m.id !== a) return m;
+        if (
+          m.edges.some(
+            (e) =>
+              e.source === connection.source && e.target === connection.target,
+          )
+        )
+          return m;
+        const edge: MindMapEdge = {
+          id: uid(),
+          source: connection.source,
+          target: connection.target,
+          sourceHandle: connection.sourceHandle ?? undefined,
+          targetHandle: connection.targetHandle ?? undefined,
+        };
+        return { ...m, edges: [...m.edges, edge], updatedAt: Date.now() };
+      });
+      write(next, a);
+    },
+    [maps, write],
+  );
+
+  const removeEdge = useCallback(
+    (id: string) => {
+      const a = activeIdRef.current;
+      if (!a) return;
+      const next = maps.map((m) =>
+        m.id === a
+          ? {
+              ...m,
+              edges: m.edges.filter((e) => e.id !== id),
+              updatedAt: Date.now(),
+            }
+          : m,
+      );
+      write(next, a);
+    },
+    [maps, write],
+  );
+
+  return {
+    ready,
+    maps,
+    activeMap: activeMap ?? null,
+    activeId,
+    setActiveId,
+    createMap,
+    deleteMap,
+    renameMap,
+    setMapEmoji,
+    updateActive,
+    upsertNode,
+    removeNode,
+    setNodeColor,
+    setNodeNote,
+    setNodeTitle,
+    setNodeTags,
+    addNode,
+    addGroup,
+    addChildToGroup,
+    groupNodes,
+    toggleGroup,
+    addEdge,
+    removeEdge,
+  };
+}
