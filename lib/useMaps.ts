@@ -103,9 +103,11 @@ export interface UseMaps {
   maps: MindMap[];
   activeMap: MindMap | null;
   activeId: string | null;
+  canUndo: boolean;
   setActiveId: (id: string) => void;
   createMap: () => string;
   deleteMap: (id: string) => void;
+  undo: () => void;
   renameMap: (id: string, title: string) => void;
   setMapEmoji: (id: string, emoji: string) => void;
   updateActive: (mutator: (m: MindMap) => MindMap) => void;
@@ -119,6 +121,7 @@ export interface UseMaps {
   addGroup: (position?: { x: number; y: number }) => string;
   addChildToGroup: (groupId: string, position?: { x: number; y: number }) => string;
   groupNodes: (nodeIds: string[]) => void;
+  assignToGroup: (nodeId: string, groupId: string | null) => void;
   toggleGroup: (id: string) => void;
   addEdge: (connection: {
     source: string;
@@ -133,7 +136,10 @@ export function useMaps(): UseMaps {
   const [maps, setMaps] = useState<MindMap[]>([]);
   const [activeId, setActiveIdState] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  const [canUndo, setCanUndo] = useState(false);
   const activeIdRef = useRef<string | null>(null);
+  const mapsRef = useRef<MindMap[]>([]);
+  const pastRef = useRef<MindMap[][]>([]);
 
   useEffect(() => {
     const { maps: loaded, activeId: a } = load();
@@ -143,45 +149,67 @@ export function useMaps(): UseMaps {
     setReady(true);
   }, []);
 
+  useEffect(() => {
+    mapsRef.current = maps;
+  }, [maps]);
+
+  const undo = useCallback(() => {
+    const snap = pastRef.current.pop();
+    if (!snap) return;
+    const a = activeIdRef.current;
+    setMaps(snap);
+    persist(snap, a);
+    setCanUndo(pastRef.current.length > 0);
+  }, [setMaps]);
+
   const write = useCallback(
     (next: MindMap[], nextActive: string | null) => {
+      const prev = mapsRef.current;
+      pastRef.current.push(
+        typeof structuredClone === "function"
+          ? structuredClone(prev)
+          : JSON.parse(JSON.stringify(prev)),
+      );
+      if (pastRef.current.length > 30) pastRef.current.shift();
+      setCanUndo(true);
       setMaps(next);
+      mapsRef.current = next;
       setActiveIdState(nextActive);
       activeIdRef.current = nextActive;
       persist(next, nextActive);
     },
-    [],
+    [setMaps, setActiveIdState],
   );
 
   const updateActive = useCallback(
     (mutator: (m: MindMap) => MindMap) => {
       const a = activeIdRef.current;
       if (!a) return;
-      const next = maps.map((m) =>
+      const next = mapsRef.current.map((m) =>
         m.id === a ? { ...mutator(m), updatedAt: Date.now() } : m,
       );
       write(next, a);
     },
-    [maps, write],
+    [write],
   );
 
   const setActiveId = useCallback(
     (id: string) => {
-      write(maps, id);
+      write(mapsRef.current, id);
     },
-    [maps, write],
+    [write],
   );
 
   const createMap = useCallback((): string => {
     const m = defaultMap();
-    const next = [...maps, m];
+    const next = [...mapsRef.current, m];
     write(next, m.id);
     return m.id;
-  }, [maps, write]);
+  }, [write]);
 
   const deleteMap = useCallback(
     (id: string) => {
-      const next = maps.filter((m) => m.id !== id);
+      const next = mapsRef.current.filter((m) => m.id !== id);
       let active = activeIdRef.current;
       if (active === id) {
         active = next[0]?.id ?? null;
@@ -193,37 +221,37 @@ export function useMaps(): UseMaps {
       }
       write(next, active);
     },
-    [maps, write],
+    [write],
   );
 
   const renameMap = useCallback(
     (id: string, title: string) => {
-      const next = maps.map((m) =>
+      const next = mapsRef.current.map((m) =>
         m.id === id ? { ...m, title, updatedAt: Date.now() } : m,
       );
       write(next, activeIdRef.current);
     },
-    [maps, write],
+    [write],
   );
 
   const setMapEmoji = useCallback(
     (id: string, emoji: string) => {
-      const next = maps.map((m) =>
+      const next = mapsRef.current.map((m) =>
         m.id === id ? { ...m, emoji, updatedAt: Date.now() } : m,
       );
       write(next, activeIdRef.current);
     },
-    [maps, write],
+    [write],
   );
 
-  const activeMap = maps.find((m) => m.id === activeId) ?? null;
+  const activeMap = mapsRef.current.find((m) => m.id === activeId) ?? null;
 
   const addNode = useCallback(
     (position?: { x: number; y: number }): string => {
       const a = activeIdRef.current;
       if (!a) return "";
       const id = uid();
-      const map = maps.find((m) => m.id === a);
+      const map = mapsRef.current.find((m) => m.id === a);
       const last = map?.nodes[map.nodes.length - 1];
       const pos =
         position ??
@@ -238,7 +266,7 @@ export function useMaps(): UseMaps {
         tags: [],
         position: pos,
       };
-      const next = maps.map((m) =>
+      const next = mapsRef.current.map((m) =>
         m.id === a
           ? { ...m, nodes: [...m.nodes, node], updatedAt: Date.now() }
           : m,
@@ -246,7 +274,7 @@ export function useMaps(): UseMaps {
       write(next, a);
       return id;
     },
-    [maps, write],
+    [write],
   );
 
   const addGroup = useCallback(
@@ -254,7 +282,7 @@ export function useMaps(): UseMaps {
       const a = activeIdRef.current;
       if (!a) return "";
       const id = uid();
-      const map = maps.find((m) => m.id === a);
+      const map = mapsRef.current.find((m) => m.id === a);
       const last = map?.nodes[map.nodes.length - 1];
       const pos =
         position ??
@@ -271,7 +299,7 @@ export function useMaps(): UseMaps {
         expanded: true,
         position: pos,
       };
-      const next = maps.map((m) =>
+      const next = mapsRef.current.map((m) =>
         m.id === a
           ? { ...m, nodes: [...m.nodes, group], updatedAt: Date.now() }
           : m,
@@ -279,7 +307,7 @@ export function useMaps(): UseMaps {
       write(next, a);
       return id;
     },
-    [maps, write],
+    [write],
   );
 
   const addChildToGroup = useCallback(
@@ -297,7 +325,7 @@ export function useMaps(): UseMaps {
         parentId: groupId,
         position: pos,
       };
-      const next = maps.map((m) =>
+      const next = mapsRef.current.map((m) =>
         m.id === a
           ? { ...m, nodes: [...m.nodes, child], updatedAt: Date.now() }
           : m,
@@ -305,7 +333,7 @@ export function useMaps(): UseMaps {
       write(next, a);
       return id;
     },
-    [maps, write],
+    [write],
   );
 
   const groupNodes = useCallback(
@@ -313,10 +341,10 @@ export function useMaps(): UseMaps {
       const a = activeIdRef.current;
       if (!a) return;
       const idSet = new Set(nodeIds);
-      const map = maps.find((m) => m.id === a);
+      const map = mapsRef.current.find((m) => m.id === a);
       if (!map) return;
       const selected = map.nodes.filter(
-        (n) => idSet.has(n.id) && !n.parentId && !n.isGroup,
+        (n) => idSet.has(n.id) && !n.isGroup,
       );
       if (selected.length === 0) return;
 
@@ -339,13 +367,13 @@ export function useMaps(): UseMaps {
         position: groupPos,
       };
 
-      const next = maps.map((m) =>
+      const next = mapsRef.current.map((m) =>
         m.id === a
           ? {
               ...m,
               nodes: [
                 ...m.nodes.map((n) =>
-                  idSet.has(n.id) && !n.parentId && !n.isGroup
+                  idSet.has(n.id) && !n.isGroup
                     ? {
                         ...n,
                         parentId: groupId,
@@ -364,14 +392,76 @@ export function useMaps(): UseMaps {
       );
       write(next, a);
     },
-    [maps, write],
+    [write],
+  );
+
+  const assignToGroup = useCallback(
+    (nodeId: string, groupId: string | null) => {
+      const a = activeIdRef.current;
+      if (!a) return;
+      const map = mapsRef.current.find((m) => m.id === a);
+      if (!map) return;
+
+      const getAbs = (n: MindMapNode, visited = new Set<string>()): { x: number; y: number } => {
+        if (visited.has(n.id)) return n.position;
+        visited.add(n.id);
+        if (!n.parentId) return n.position;
+        const p = map.nodes.find((x) => x.id === n.parentId);
+        if (!p) return n.position;
+        const pp = getAbs(p, visited);
+        return { x: n.position.x + pp.x, y: n.position.y + pp.y };
+      };
+
+      const next = mapsRef.current.map((m) => {
+        if (m.id !== a) return m;
+        const n = m.nodes.find((x) => x.id === nodeId);
+        if (!n || n.isGroup) return m;
+        const oldGroup = n.parentId ? m.nodes.find((x) => x.id === n.parentId) : null;
+        const oldAbs = getAbs(n);
+
+        if (!groupId) {
+          if (!n.parentId) return m;
+          return {
+            ...m,
+            nodes: m.nodes.map((x) =>
+              x.id === nodeId
+                ? { ...x, parentId: undefined, position: oldAbs }
+                : x,
+            ),
+            updatedAt: Date.now(),
+          };
+        }
+
+        const g = m.nodes.find((x) => x.id === groupId);
+        if (!g || !g.isGroup || g.id === n.id) return m;
+        const gAbs = getAbs(g);
+        return {
+          ...m,
+          nodes: m.nodes.map((x) =>
+            x.id === nodeId
+              ? {
+                  ...x,
+                  parentId: groupId,
+                  position: {
+                    x: oldAbs.x - gAbs.x,
+                    y: oldAbs.y - gAbs.y,
+                  },
+                }
+              : x,
+          ),
+          updatedAt: Date.now(),
+        };
+      });
+      write(next, a);
+    },
+    [write],
   );
 
   const toggleGroup = useCallback(
     (id: string) => {
       const a = activeIdRef.current;
       if (!a) return;
-      const next = maps.map((m) =>
+      const next = mapsRef.current.map((m) =>
         m.id === a
           ? {
               ...m,
@@ -384,14 +474,14 @@ export function useMaps(): UseMaps {
       );
       write(next, a);
     },
-    [maps, write],
+    [write],
   );
 
   const upsertNode = useCallback(
     (node: MindMapNode) => {
       const a = activeIdRef.current;
       if (!a) return;
-      const next = maps.map((m) => {
+      const next = mapsRef.current.map((m) => {
         if (m.id !== a) return m;
         const exists = m.nodes.some((n) => n.id === node.id);
         return {
@@ -404,7 +494,7 @@ export function useMaps(): UseMaps {
       });
       write(next, a);
     },
-    [maps, write],
+    [write],
   );
 
   const removeNode = useCallback(
@@ -412,7 +502,7 @@ export function useMaps(): UseMaps {
       const a = activeIdRef.current;
       if (!a) return;
       const idSet = new Set(Array.isArray(ids) ? ids : [ids]);
-      const next = maps.map((m) =>
+      const next = mapsRef.current.map((m) =>
         m.id === a
           ? {
               ...m,
@@ -430,14 +520,14 @@ export function useMaps(): UseMaps {
       );
       write(next, a);
     },
-    [maps, write],
+    [write],
   );
 
   const setNodeColor = useCallback(
     (id: string, color: StickerColor) => {
       const a = activeIdRef.current;
       if (!a) return;
-      const next = maps.map((m) =>
+      const next = mapsRef.current.map((m) =>
         m.id === a
           ? {
               ...m,
@@ -450,14 +540,14 @@ export function useMaps(): UseMaps {
       );
       write(next, a);
     },
-    [maps, write],
+    [write],
   );
 
   const setNodeNote = useCallback(
     (id: string, note: string) => {
       const a = activeIdRef.current;
       if (!a) return;
-      const next = maps.map((m) =>
+      const next = mapsRef.current.map((m) =>
         m.id === a
           ? {
               ...m,
@@ -470,14 +560,14 @@ export function useMaps(): UseMaps {
       );
       write(next, a);
     },
-    [maps, write],
+    [write],
   );
 
   const setNodeTitle = useCallback(
     (id: string, title: string) => {
       const a = activeIdRef.current;
       if (!a) return;
-      const next = maps.map((m) =>
+      const next = mapsRef.current.map((m) =>
         m.id === a
           ? {
               ...m,
@@ -490,14 +580,14 @@ export function useMaps(): UseMaps {
       );
       write(next, a);
     },
-    [maps, write],
+    [write],
   );
 
   const setNodeTags = useCallback(
     (id: string, tags: string[]) => {
       const a = activeIdRef.current;
       if (!a) return;
-      const next = maps.map((m) =>
+      const next = mapsRef.current.map((m) =>
         m.id === a
           ? {
               ...m,
@@ -510,7 +600,7 @@ export function useMaps(): UseMaps {
       );
       write(next, a);
     },
-    [maps, write],
+    [write],
   );
 
   const addEdge = useCallback(
@@ -523,7 +613,7 @@ export function useMaps(): UseMaps {
       if (connection.source === connection.target) return;
       const a = activeIdRef.current;
       if (!a) return;
-      const next = maps.map((m) => {
+      const next = mapsRef.current.map((m) => {
         if (m.id !== a) return m;
         if (
           m.edges.some(
@@ -543,14 +633,14 @@ export function useMaps(): UseMaps {
       });
       write(next, a);
     },
-    [maps, write],
+    [write],
   );
 
   const removeEdge = useCallback(
     (id: string) => {
       const a = activeIdRef.current;
       if (!a) return;
-      const next = maps.map((m) =>
+      const next = mapsRef.current.map((m) =>
         m.id === a
           ? {
               ...m,
@@ -561,7 +651,7 @@ export function useMaps(): UseMaps {
       );
       write(next, a);
     },
-    [maps, write],
+    [write],
   );
 
   return {
@@ -569,6 +659,8 @@ export function useMaps(): UseMaps {
     maps,
     activeMap: activeMap ?? null,
     activeId,
+    canUndo,
+    undo,
     setActiveId,
     createMap,
     deleteMap,
@@ -585,6 +677,7 @@ export function useMaps(): UseMaps {
     addGroup,
     addChildToGroup,
     groupNodes,
+    assignToGroup,
     toggleGroup,
     addEdge,
     removeEdge,

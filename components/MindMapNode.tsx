@@ -56,49 +56,21 @@ function MindMapNodeView({ id, data, selected }: NodeProps) {
         id="top-source"
         type="source"
         position={Position.Top}
-        style={{ left: "60%" }}
       />
       <Handle
         id="right-source"
         type="source"
         position={Position.Right}
-        style={{ top: "40%" }}
       />
       <Handle
         id="bottom-source"
         type="source"
         position={Position.Bottom}
-        style={{ left: "60%" }}
       />
       <Handle
         id="left-source"
         type="source"
         position={Position.Left}
-        style={{ top: "40%" }}
-      />
-      <Handle
-        id="top-target"
-        type="target"
-        position={Position.Top}
-        style={{ left: "40%" }}
-      />
-      <Handle
-        id="right-target"
-        type="target"
-        position={Position.Right}
-        style={{ top: "60%" }}
-      />
-      <Handle
-        id="bottom-target"
-        type="target"
-        position={Position.Bottom}
-        style={{ left: "40%" }}
-      />
-      <Handle
-        id="left-target"
-        type="target"
-        position={Position.Left}
-        style={{ top: "60%" }}
       />
       <NodeResizer
         minWidth={120}

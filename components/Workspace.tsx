@@ -15,9 +15,11 @@ import {
   type ReactFlowInstance,
   type OnConnect,
   type OnConnectEnd,
+  type OnNodeDrag,
   type OnNodesChange,
   type OnEdgesChange,
   SelectionMode,
+  ConnectionMode,
   Position,
 } from "@xyflow/react";
 
@@ -55,6 +57,7 @@ interface Props {
   onAddGroup: (position?: { x: number; y: number }) => string;
   onAddChildToGroup: (groupId: string, position?: { x: number; y: number }) => string;
   onGroupNodes: (nodeIds: string[]) => void;
+  onAssignToGroup: (nodeId: string, groupId: string | null) => void;
   onToggleGroup: (id: string) => void;
 }
 
@@ -87,6 +90,7 @@ function WorkspaceInner({
   onAddGroup,
   onAddChildToGroup,
   onGroupNodes,
+  onAssignToGroup,
   onToggleGroup,
 }: Props) {
   const [title, setTitle] = useState(map.title);
@@ -104,14 +108,26 @@ function WorkspaceInner({
   const onTitleCommitRef = useRef(onTitleCommit);
   const onAddGroupRef = useRef(onAddGroup);
   const onAddChildToGroupRef = useRef(onAddChildToGroup);
+  const onGroupNodesRef = useRef(onGroupNodes);
+  const onAssignToGroupRef = useRef(onAssignToGroup);
   const onToggleGroupRef = useRef(onToggleGroup);
   useEffect(() => {
     onMoveNodeRef.current = onMoveNode;
     onTitleCommitRef.current = onTitleCommit;
     onAddGroupRef.current = onAddGroup;
     onAddChildToGroupRef.current = onAddChildToGroup;
+    onGroupNodesRef.current = onGroupNodes;
+    onAssignToGroupRef.current = onAssignToGroup;
     onToggleGroupRef.current = onToggleGroup;
-  }, [onMoveNode, onTitleCommit, onAddGroup, onAddChildToGroup, onToggleGroup]);
+  }, [
+    onMoveNode,
+    onTitleCommit,
+    onAddGroup,
+    onAddChildToGroup,
+    onGroupNodes,
+    onAssignToGroup,
+    onToggleGroup,
+  ]);
 
   useEffect(() => {
     setTitle(map.title);
@@ -182,8 +198,19 @@ function WorkspaceInner({
         zIndex: isGroup ? -1 : n.parentId ? 1 : 0,
       };
       if (isGroup) {
-        base.width = expanded ? 320 : 180;
-        base.height = expanded ? 220 : 48;
+        const children = map.nodes.filter((c) => c.parentId === n.id);
+        const minChildX = Math.min(0, ...children.map((c) => c.position.x));
+        const minChildY = Math.min(40, ...children.map((c) => c.position.y));
+        const maxChildX = Math.max(
+          0,
+          ...children.map((c) => c.position.x + 180),
+        );
+        const maxChildY = Math.max(
+          40,
+          ...children.map((c) => c.position.y + 80),
+        );
+        base.width = Math.max(320, maxChildX - minChildX + 40);
+        base.height = Math.max(220, maxChildY - minChildY + 60);
       }
       return base;
     });
@@ -201,18 +228,10 @@ function WorkspaceInner({
         if (!old) return sn;
         if (!isDraggingRef.current) {
           // Use store position and preserve width/height from the current UI.
-          const isGroupNode = sn.type === "group";
-          const isExpanded =
-            (sn.data as { expanded?: boolean }).expanded !== false;
-          const groupShouldReset = isGroupNode && !isExpanded;
           return {
             ...sn,
-            width: groupShouldReset
-              ? sn.width
-              : (old?.width ?? sn.width),
-            height: groupShouldReset
-              ? sn.height
-              : (old?.height ?? sn.height),
+            width: old?.width ?? sn.width,
+            height: old?.height ?? sn.height,
           };
         }
         // Mid-drag: keep prev's positions and dimensions, refresh content.
@@ -227,8 +246,12 @@ function WorkspaceInner({
         id: e.id,
         source: e.source,
         target: e.target,
-        sourceHandle: e.sourceHandle ?? "right-source",
-        targetHandle: e.targetHandle ?? "left-target",
+        sourceHandle: e.sourceHandle
+          ? e.sourceHandle.replace(/-target$/, "-source")
+          : "right-source",
+        targetHandle: e.targetHandle
+          ? e.targetHandle.replace(/-target$/, "-source")
+          : "left-source",
         type: "smoothstep",
         selected: selectedEdgeId === e.id,
         interactionWidth: 24,
@@ -248,29 +271,26 @@ function WorkspaceInner({
       const removedIds: string[] = [];
       for (const c of changes) {
         if (c.type === "position" && c.position) {
+          const child = flowNodesRef.current.find((f) => f.id === c.id);
+          const parent =
+            child?.parentId &&
+            flowNodesRef.current.find((f) => f.id === child.parentId);
+          if (parent) {
+            const pw = parent.width ?? 320;
+            const ph = parent.height ?? 220;
+            const cw = child.width ?? 180;
+            const ch = child.height ?? 80;
+            c.position = {
+              x: Math.max(0, Math.min(c.position.x, pw - cw)),
+              y: Math.max(40, Math.min(c.position.y, ph - ch)),
+            };
+          }
           if (c.dragging) {
             isDraggingRef.current = true;
           } else {
-            // drag end — commit final position to store (clamped to parent group)
+            // drag end — commit final position to store
             isDraggingRef.current = false;
-            const child = flowNodesRef.current.find((f) => f.id === c.id);
-            const parent =
-              child?.parentId &&
-              flowNodesRef.current.find((f) => f.id === child.parentId);
-            if (parent && c.position) {
-              const groupW = parent.width ?? 320;
-              const groupH = parent.height ?? 220;
-              const childW = child.width ?? 180;
-              const childH = child.height ?? 80;
-              const x = Math.max(0, Math.min(c.position.x, groupW - childW));
-              const y = Math.max(
-                40,
-                Math.min(c.position.y, groupH - childH),
-              );
-              onMoveNodeRef.current(c.id, { x, y });
-            } else if (c.position) {
-              onMoveNodeRef.current(c.id, c.position);
-            }
+            onMoveNodeRef.current(c.id, c.position);
             sawDragEnd = true;
           }
         } else if (c.type === "remove") {
@@ -320,20 +340,23 @@ function WorkspaceInner({
       if (connectionState.toNode) return;
       const fromNode = connectionState.fromNode;
       const fromHandle = connectionState.fromHandle;
-      const to = connectionState.to;
-      if (!fromNode || !fromHandle || !to) return;
+      const pointer = connectionState.pointer;
+      if (!fromNode || !fromHandle || !pointer) return;
 
-      const newId = onAddNode(to);
+      const newId = onAddNode({
+        x: pointer.x - 90,
+        y: pointer.y - 40,
+      });
       if (!newId) return;
 
       const targetHandle =
         fromHandle.position === Position.Top
-          ? "bottom-target"
+          ? "bottom-source"
           : fromHandle.position === Position.Right
-            ? "left-target"
+            ? "left-source"
             : fromHandle.position === Position.Bottom
-              ? "top-target"
-              : "right-target";
+              ? "top-source"
+              : "right-source";
 
       onAddEdge({
         source: fromNode.id,
@@ -352,10 +375,66 @@ function WorkspaceInner({
     [],
   );
 
-  const onNodeClick = useCallback((_: unknown, node: Node) => {
-    setOpenNodeId(node.id);
-    setSelectedEdgeId(null);
-  }, []);
+  const onNodeDragStop: OnNodeDrag<Node> = useCallback(
+    (_event, node, nodes) => {
+      const all = nodes.length ? nodes : [node];
+      const flow = flowNodesRef.current;
+
+      const getAbs = (n: Node, visited = new Set<string>()): { x: number; y: number } => {
+        if (visited.has(n.id)) return n.position;
+        visited.add(n.id);
+        if (!n.parentId) return n.position;
+        const p = flow.find((f) => f.id === n.parentId);
+        if (!p) return n.position;
+        const pp = getAbs(p, visited);
+        return { x: n.position.x + pp.x, y: n.position.y + pp.y };
+      };
+
+      for (const n of all) {
+        if (n.type === "group") continue;
+
+        const abs = getAbs(n);
+        const nw = n.width ?? 180;
+        const nh = n.height ?? 80;
+        const cx = abs.x + nw / 2;
+        const cy = abs.y + nh / 2;
+
+        const target = flow.find(
+          (f) =>
+            f.type === "group" &&
+            f.id !== n.id &&
+            f.id !== n.parentId &&
+            cx >= f.position.x &&
+            cx <= f.position.x + (f.width ?? 320) &&
+            cy >= f.position.y &&
+            cy <= f.position.y + (f.height ?? 220),
+        );
+
+        if (target) {
+          onAssignToGroupRef.current(n.id, target.id);
+        } else if (n.parentId) {
+          const parent = flow.find((f) => f.id === n.parentId);
+          if (!parent) continue;
+          const pw = parent.width ?? 320;
+          const ph = parent.height ?? 220;
+          const x = Math.max(0, Math.min(n.position.x, pw - nw));
+          const y = Math.max(40, Math.min(n.position.y, ph - nh));
+          onMoveNodeRef.current(n.id, { x, y });
+        }
+      }
+    },
+    [],
+  );
+
+  const onNodeClick = useCallback(
+    (event: { shiftKey?: boolean } | unknown, node: Node) => {
+      const e = event as { shiftKey?: boolean } | undefined;
+      if (e?.shiftKey) return;
+      setOpenNodeId(node.id);
+      setSelectedEdgeId(null);
+    },
+    [],
+  );
 
   const onEdgeClick = useCallback((_: unknown, edge: Edge) => {
     setSelectedEdgeId(edge.id);
@@ -600,6 +679,7 @@ function WorkspaceInner({
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
           onNodeClick={onNodeClick}
+          onNodeDragStop={onNodeDragStop}
           onEdgeClick={onEdgeClick}
           onPaneClick={onPaneClick}
           onConnectEnd={onConnectEnd}
@@ -612,6 +692,7 @@ function WorkspaceInner({
           panOnDrag={[0]}
           selectionOnDrag={false}
           selectionMode={SelectionMode.Partial}
+          connectionMode={ConnectionMode.Loose}
           multiSelectionKeyCode="Shift"
           selectionKeyCode={null}
           deleteKeyCode={["Backspace", "Delete"]}
@@ -672,6 +753,7 @@ function WorkspaceInner({
               onAddChildToGroup(groupId, { x: 40, y: 80 })
             }
             onToggleGroup={onToggleGroup}
+            onRemoveFromGroup={(id) => onAssignToGroup(id, null)}
             onDelete={(id) => {
               onRemoveNode(id);
               setOpenNodeId(null);

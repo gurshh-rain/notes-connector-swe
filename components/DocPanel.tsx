@@ -35,6 +35,7 @@ interface Props {
   onColorChange: (id: string, color: StickerColor) => void;
   onAddChildToGroup?: (groupId: string) => void;
   onToggleGroup?: (id: string) => void;
+  onRemoveFromGroup?: (id: string) => void;
   onDelete: (id: string) => void;
 }
 
@@ -58,6 +59,7 @@ export default function DocPanel({
   onColorChange,
   onAddChildToGroup,
   onToggleGroup,
+  onRemoveFromGroup,
   onDelete,
 }: Props) {
   const [title, setTitle] = useState(node.title);
@@ -223,6 +225,20 @@ export default function DocPanel({
             onClick={() => onAddChildToGroup?.(node.id)}
           >
             Add child
+          </button>
+        </div>
+      )}
+
+      {node.parentId && (
+        <div className="doc-panel__group-actions">
+          <button
+            type="button"
+            className="btn-utility"
+            onClick={() => {
+              onRemoveFromGroup?.(node.id);
+            }}
+          >
+            Remove from group
           </button>
         </div>
       )}

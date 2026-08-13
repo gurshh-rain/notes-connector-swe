@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import NavBar from "@/components/NavBar";
 import Sidebar from "@/components/Sidebar";
 import Workspace from "@/components/Workspace";
@@ -8,6 +9,17 @@ import { PlusIcon, SparkleIcon } from "@/components/Icon";
 
 export default function Home() {
   const m = useMaps();
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        m.undo();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [m.undo]);
 
   if (!m.ready) {
     return (
@@ -76,6 +88,7 @@ export default function Home() {
           onAddGroup={m.addGroup}
           onAddChildToGroup={m.addChildToGroup}
           onGroupNodes={m.groupNodes}
+          onAssignToGroup={m.assignToGroup}
           onToggleGroup={m.toggleGroup}
         />
       ) : (
