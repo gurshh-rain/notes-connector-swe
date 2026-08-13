@@ -224,11 +224,16 @@ textarea {
   color: var(--color-ink-muted);
 }
 
-.nav-bar__link {
+.nav-bar__link,
+.nav-bar__links button {
   color: var(--color-ink-muted);
   padding: 4px 8px;
   border-radius: var(--rounded-sm);
   font: var(--type-body-sm);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-decoration: none;
 }
 
 .nav-bar__link:hover {
@@ -713,6 +718,12 @@ textarea {
   border-radius: var(--rounded-md);
   padding: 4px;
   box-shadow: var(--shadow-1);
+}
+
+.canvas__fit-btn,
+.canvas__controls .btn-utility {
+  padding: 4px 8px;
+  font: var(--type-caption);
 }
 
 /* xyflow overrides for Notion feel */
@@ -1252,6 +1263,13 @@ textarea {
 
 .group-node--collapsed {
   background: var(--color-surface);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.group-node--collapsed .group-node__header {
+  border-bottom: none;
+  min-height: unset;
 }
 
 .group-node__header {
@@ -1306,4 +1324,101 @@ textarea {
   align-items: center;
   gap: 8px;
   padding: 8px 48px 0;
+}
+
+/* ---------- Documentation modal ---------- */
+
+.doc-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(2px);
+}
+
+.doc-modal {
+  width: min(720px, 100%);
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--rounded-lg);
+  box-shadow: var(--shadow-2);
+  overflow: hidden;
+}
+
+.doc-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--color-hairline);
+}
+
+.doc-modal__title {
+  font: var(--type-title);
+  font-size: 18px;
+  color: var(--color-ink);
+  margin: 0;
+}
+
+.doc-modal__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--rounded-sm);
+  color: var(--color-ink-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.doc-modal__close:hover {
+  background: var(--color-canvas-soft);
+  color: var(--color-ink);
+}
+
+.doc-modal__content {
+  padding: 20px 24px;
+  overflow-y: auto;
+}
+
+.doc-modal__content section {
+  margin-bottom: 20px;
+}
+
+.doc-modal__content h3 {
+  font: var(--type-title);
+  font-size: 15px;
+  color: var(--color-ink);
+  margin: 0 0 8px;
+}
+
+.doc-modal__content p,
+.doc-modal__content li {
+  font: var(--type-body);
+  color: var(--color-ink-muted);
+  line-height: 1.55;
+}
+
+.doc-modal__content ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.doc-modal__content li {
+  margin: 4px 0;
+}
+
+.doc-modal__content strong {
+  color: var(--color-ink);
+  font-weight: 500;
 }

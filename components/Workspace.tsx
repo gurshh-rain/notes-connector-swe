@@ -201,19 +201,24 @@ function WorkspaceInner({
         zIndex: isGroup ? -1 : n.parentId ? 1 : 0,
       };
       if (isGroup) {
-        const children = map.nodes.filter((c) => c.parentId === n.id);
-        const minChildX = Math.min(0, ...children.map((c) => c.position.x));
-        const minChildY = Math.min(40, ...children.map((c) => c.position.y));
-        const maxChildX = Math.max(
-          0,
-          ...children.map((c) => c.position.x + 180),
-        );
-        const maxChildY = Math.max(
-          40,
-          ...children.map((c) => c.position.y + 80),
-        );
-        base.width = Math.max(320, maxChildX - minChildX + 40);
-        base.height = Math.max(220, maxChildY - minChildY + 60);
+        if (n.expanded === false) {
+          base.width = 180;
+          base.height = 48;
+        } else {
+          const children = map.nodes.filter((c) => c.parentId === n.id);
+          const minChildX = Math.min(0, ...children.map((c) => c.position.x));
+          const minChildY = Math.min(40, ...children.map((c) => c.position.y));
+          const maxChildX = Math.max(
+            0,
+            ...children.map((c) => c.position.x + 180),
+          );
+          const maxChildY = Math.max(
+            40,
+            ...children.map((c) => c.position.y + 80),
+          );
+          base.width = Math.max(320, maxChildX - minChildX + 40);
+          base.height = Math.max(220, maxChildY - minChildY + 60);
+        }
       }
       return base;
     });
@@ -230,11 +235,14 @@ function WorkspaceInner({
         const old = prevById.get(sn.id);
         if (!old) return sn;
         if (!isDraggingRef.current) {
-          // Use store position and preserve width/height from the current UI.
+          const expandedChanged =
+            old.data?.expanded !== (sn.data as { expanded?: boolean }).expanded;
+          // Use store position and preserve width/height, but follow the
+          // store dimensions when a group is expanded or collapsed.
           return {
             ...sn,
-            width: old?.width ?? sn.width,
-            height: old?.height ?? sn.height,
+            width: expandedChanged ? sn.width : (old?.width ?? sn.width),
+            height: expandedChanged ? sn.height : (old?.height ?? sn.height),
           };
         }
         // Mid-drag: keep prev's positions and dimensions, refresh content.
@@ -630,7 +638,7 @@ function WorkspaceInner({
             </button>
           )}
           <button
-            className="btn-primary"
+            className="btn-primary canvas__fit-btn"
             type="button"
             onClick={() => rf.fitView({ padding: 0.2, duration: 200 })}
             title="Fit view"
@@ -703,7 +711,9 @@ function WorkspaceInner({
           <MiniMap
             pannable
             zoomable
-            nodeColor={() => "#0075de"}
+            nodeColor={(node) =>
+              node.type === "group" ? "#a855f7" : "#0075de"
+            }
             maskColor="rgba(246,245,244,0.7)"
             style={{ background: "var(--color-canvas)", width: 200, height: 150 }}
           />

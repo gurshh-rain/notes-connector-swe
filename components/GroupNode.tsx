@@ -4,6 +4,7 @@ import { memo } from "react";
 import { Handle, Position, NodeResizer, type NodeProps } from "@xyflow/react";
 import type { StickerColor } from "@/lib/types";
 import { STICKER_COLORS } from "@/lib/types";
+import { ChevronRightIcon, ChevronDownIcon } from "./Icon";
 
 type GroupData = {
   id: string;
@@ -73,7 +74,7 @@ function GroupNodeView({ id, data, selected }: NodeProps) {
           title={d.expanded ? "Collapse" : "Expand"}
           aria-label={d.expanded ? "Collapse" : "Expand"}
         >
-          {d.expanded ? "−" : "+"}
+          {d.expanded ? <ChevronDownIcon size={14} /> : <ChevronRightIcon size={14} />}
         </button>
         <button
           type="button"
