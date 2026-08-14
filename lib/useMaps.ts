@@ -1,7 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { Awareness } from "y-protocols/awareness";
 import type { MindMap, MindMapNode, MindMapEdge, StickerColor } from "./types";
+import {
+  getCollabRoom,
+  getMaps,
+  setMaps as setMapsYjs,
+  getActiveId,
+  setActiveId as setActiveIdYjs,
+  type CollabRoom,
+} from "./collab";
 
 const STORAGE_KEY = "connector:maps:v1";
 const ACTIVE_KEY = "connector:active:v1";
@@ -103,8 +112,11 @@ export interface UseMaps {
   maps: MindMap[];
   activeMap: MindMap | null;
   activeId: string | null;
+  roomId: string | null;
+  awareness: Awareness | null;
   canUndo: boolean;
   setActiveId: (id: string) => void;
+  shareRoom: () => string | null;
   createMap: () => string;
   deleteMap: (id: string) => void;
   undo: () => void;
@@ -137,17 +149,69 @@ export function useMaps(): UseMaps {
   const [activeId, setActiveIdState] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [canUndo, setCanUndo] = useState(false);
+  const [roomId, setRoomId] = useState<string | null>(null);
+  const [awareness, setAwareness] = useState<Awareness | null>(null);
   const activeIdRef = useRef<string | null>(null);
   const mapsRef = useRef<MindMap[]>([]);
   const pastRef = useRef<MindMap[][]>([]);
+  const roomRef = useRef<CollabRoom | null>(null);
 
+  // Read the ?room=... from the URL once on mount.
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const r = params.get("room");
+    if (r) setRoomId(r);
+  }, []);
+
+  // Load the maps and, if a room is set, sync with Yjs.
+  useEffect(() => {
+    if (roomId) {
+      const room = getCollabRoom(roomId);
+      roomRef.current = room;
+      setAwareness(room.awareness);
+
+      const apply = () => {
+        const remote = getMaps(room);
+        const remoteActive = getActiveId(room);
+        const nextActive =
+          remoteActive && remote.some((m) => m.id === remoteActive)
+            ? remoteActive
+            : remote[0]?.id ?? null;
+        if (JSON.stringify(mapsRef.current) !== JSON.stringify(remote)) {
+          setMaps(remote);
+          mapsRef.current = remote;
+        }
+        if (activeIdRef.current !== nextActive) {
+          setActiveIdState(nextActive);
+          activeIdRef.current = nextActive;
+        }
+      };
+
+      apply();
+      room.maps.observe(apply);
+      room.activeId.observe(apply);
+
+      room.persistence.whenSynced.then(() => {
+        apply();
+        setReady(true);
+      });
+
+      setReady(true);
+
+      return () => {
+        room.maps.unobserve(apply);
+        room.activeId.unobserve(apply);
+        room.provider.disconnect();
+      };
+    }
+
     const { maps: loaded, activeId: a } = load();
     setMaps(loaded);
     setActiveIdState(a);
     activeIdRef.current = a;
     setReady(true);
-  }, []);
+  }, [roomId]);
 
   useEffect(() => {
     mapsRef.current = maps;
@@ -158,7 +222,13 @@ export function useMaps(): UseMaps {
     if (!snap) return;
     const a = activeIdRef.current;
     setMaps(snap);
-    persist(snap, a);
+    mapsRef.current = snap;
+    if (roomRef.current) {
+      setMapsYjs(roomRef.current, snap);
+      setActiveIdYjs(roomRef.current, a);
+    } else {
+      persist(snap, a);
+    }
     setCanUndo(pastRef.current.length > 0);
   }, [setMaps]);
 
@@ -176,10 +246,44 @@ export function useMaps(): UseMaps {
       mapsRef.current = next;
       setActiveIdState(nextActive);
       activeIdRef.current = nextActive;
-      persist(next, nextActive);
+      if (roomRef.current) {
+        setMapsYjs(roomRef.current, next);
+        setActiveIdYjs(roomRef.current, nextActive);
+      } else {
+        persist(next, nextActive);
+      }
     },
     [setMaps, setActiveIdState],
   );
+
+  const shareRoom = useCallback((): string | null => {
+    const currentRoomId = roomRef.current ? roomId : null;
+    if (currentRoomId) {
+      if (roomRef.current) {
+        setMapsYjs(roomRef.current, mapsRef.current);
+        setActiveIdYjs(roomRef.current, activeIdRef.current);
+      }
+      if (typeof window !== "undefined") {
+        const url = new URL(window.location.href);
+        url.searchParams.set("room", currentRoomId);
+        window.history.replaceState(null, "", url.toString());
+      }
+      return currentRoomId;
+    }
+    const id = uid();
+    const room = getCollabRoom(id);
+    roomRef.current = room;
+    setMapsYjs(room, mapsRef.current);
+    setActiveIdYjs(room, activeIdRef.current);
+    setRoomId(id);
+    setAwareness(room.awareness);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.set("room", id);
+      window.history.replaceState(null, "", url.toString());
+    }
+    return id;
+  }, [roomId]);
 
   const updateActive = useCallback(
     (mutator: (m: MindMap) => MindMap) => {
@@ -659,9 +763,12 @@ export function useMaps(): UseMaps {
     maps,
     activeMap: activeMap ?? null,
     activeId,
+    roomId,
+    awareness,
     canUndo,
     undo,
     setActiveId,
+    shareRoom,
     createMap,
     deleteMap,
     renameMap,

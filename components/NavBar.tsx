@@ -7,13 +7,19 @@ import DocModal from "./DocModal";
 
 const THEME_KEY = "connector:theme";
 
+interface Props {
+  roomId: string | null;
+  onShare: () => string | null;
+}
+
 function applyTheme(nextIsDark: boolean) {
   document.documentElement.dataset.theme = nextIsDark ? "dark" : "light";
 }
 
-export default function NavBar() {
+export default function NavBar({ roomId, onShare }: Props) {
   const [isDark, setIsDark] = useState(false);
   const [docOpen, setDocOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     const saved =
@@ -35,6 +41,19 @@ export default function NavBar() {
       }
       return next;
     });
+  };
+
+  const handleShare = async () => {
+    const id = onShare();
+    if (!id) return;
+    if (typeof window === "undefined") return;
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // ignore
+    }
   };
 
   return (
@@ -73,6 +92,14 @@ export default function NavBar() {
             title={isDark ? "Switch to light mode" : "Switch to dark mode"}
           >
             {isDark ? <SunIcon size={16} /> : <MoonIcon size={16} />}
+          </button>
+          <button
+            type="button"
+            className="btn-utility"
+            onClick={handleShare}
+            title="Copy shareable link"
+          >
+            {roomId ? (copied ? "Copied!" : "Share link") : "Share"}
           </button>
           <Link className="nav-bar__link" href="/coming-soon">
             Log in

@@ -17,6 +17,7 @@ A local-first, canvas-based note-taking app for mapping out ideas. Built with Ne
 - Undo with Ctrl+Z
 - Mini-map with node and edge overview
 - Auto-saves to browser localStorage
+- Real-time collaboration with shareable links and live cursors
 
 ## Tech Stack
 
@@ -57,7 +58,6 @@ npm run build
 ## Future Goals
 
 - Cloud sync and multi-device support
-- Real-time collaboration with live cursors
 - Custom node shapes and templates
 - Markdown import / export
 - Image and file attachments on nodes

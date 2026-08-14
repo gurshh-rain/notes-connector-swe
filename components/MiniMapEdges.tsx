@@ -1,7 +1,11 @@
 "use client";
 
 import { Panel, useStore, getSmoothStepPath, Position } from "@xyflow/react";
-import { getNodeDimensions, getBoundsOfRects } from "@xyflow/system";
+import {
+  getNodeDimensions,
+  getBoundsOfRects,
+  getInternalNodesBounds,
+} from "@xyflow/system";
 import type { Edge } from "@xyflow/react";
 
 const ELEMENT_WIDTH = 200;
@@ -29,52 +33,45 @@ function handleY(position: Position, height: number) {
   return height / 2;
 }
 
-export default function MiniMapEdges() {
-  const { nodeLookup, edges, transform, width, height } = useStore((s) => ({
-    nodeLookup: s.nodeLookup as Map<string, unknown>,
-    edges: s.edges,
-    transform: s.transform,
-    width: s.width,
-    height: s.height,
-  }));
+type MiniMapEdgePath = { id: string; d: string };
 
+type MiniMapState = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  paths: MiniMapEdgePath[];
+};
+
+function rectEqual(
+  a: { x: number; y: number; width: number; height: number },
+  b: { x: number; y: number; width: number; height: number },
+) {
+  return (
+    a.x === b.x &&
+    a.y === b.y &&
+    a.width === b.width &&
+    a.height === b.height
+  );
+}
+
+function computeViewBox(s: any) {
   const viewBB = {
-    x: -transform[0] / transform[2],
-    y: -transform[1] / transform[2],
-    width: width / transform[2],
-    height: height / transform[2],
+    x: -s.transform[0] / s.transform[2],
+    y: -s.transform[1] / s.transform[2],
+    width: s.width / s.transform[2],
+    height: s.height / s.transform[2],
   };
 
-  const box = { x: Infinity, y: Infinity, x2: -Infinity, y2: -Infinity };
-  let hasNodes = false;
-  for (const n of nodeLookup.values()) {
-    const internal = n as {
-      hidden?: boolean;
-      internals?: { positionAbsolute?: { x: number; y: number } };
-      measured?: { width?: number; height?: number };
-      width?: number;
-      height?: number;
-    };
-    if (internal.hidden) continue;
-    hasNodes = true;
-    const pos = internal.internals?.positionAbsolute ?? { x: 0, y: 0 };
-    const { width: w, height: h } = getNodeDimensions(internal as any);
-    if (pos.x < box.x) box.x = pos.x;
-    if (pos.y < box.y) box.y = pos.y;
-    if (pos.x + w > box.x2) box.x2 = pos.x + w;
-    if (pos.y + h > box.y2) box.y2 = pos.y + h;
-  }
-
-  const nodeBounds = hasNodes
-    ? {
-        x: box.x,
-        y: box.y,
-        width: box.x2 - box.x,
-        height: box.y2 - box.y,
-      }
-    : viewBB;
+  const nodeBounds =
+    s.nodeLookup.size > 0
+      ? getInternalNodesBounds(s.nodeLookup as Map<string, any>, {
+          filter: (node: any) => !node.hidden,
+        })
+      : viewBB;
 
   const boundingRect = getBoundsOfRects(nodeBounds, viewBB);
+
   const scaledWidth = boundingRect.width / ELEMENT_WIDTH;
   const scaledHeight = boundingRect.height / ELEMENT_HEIGHT;
   const viewScale = Math.max(scaledWidth, scaledHeight, 0.0001);
@@ -86,36 +83,72 @@ export default function MiniMapEdges() {
   const w = viewWidth + offset * 2;
   const h = viewHeight + offset * 2;
 
-  const edgePaths = edges.map((e: Edge) => {
-    const sourceNode = nodeLookup.get(e.source) as any;
-    const targetNode = nodeLookup.get(e.target) as any;
-    if (!sourceNode || !targetNode) return null;
+  return { x, y, w, h };
+}
 
-    const sp = getHandlePosition(e.sourceHandle);
-    const tp = getHandlePosition(e.targetHandle);
-    const { width: sw, height: sh } = getNodeDimensions(sourceNode);
-    const { width: tw, height: th } = getNodeDimensions(targetNode);
+function computeEdgePaths(
+  edges: Edge[],
+  nodeLookup: Map<string, any>,
+): MiniMapEdgePath[] {
+  return edges
+    .map((e) => {
+      const sourceNode = nodeLookup.get(e.source);
+      const targetNode = nodeLookup.get(e.target);
+      if (!sourceNode || !targetNode) return null;
 
-    const sAbs = sourceNode.internals.positionAbsolute as { x: number; y: number };
-    const tAbs = targetNode.internals.positionAbsolute as { x: number; y: number };
+      const sp = getHandlePosition(e.sourceHandle);
+      const tp = getHandlePosition(e.targetHandle);
+      const { width: sw, height: sh } = getNodeDimensions(sourceNode);
+      const { width: tw, height: th } = getNodeDimensions(targetNode);
 
-    const sourceX = sAbs.x + handleX(sp, sw);
-    const sourceY = sAbs.y + handleY(sp, sh);
-    const targetX = tAbs.x + handleX(tp, tw);
-    const targetY = tAbs.y + handleY(tp, th);
+      const sAbs = sourceNode.internals.positionAbsolute as {
+        x: number;
+        y: number;
+      };
+      const tAbs = targetNode.internals.positionAbsolute as {
+        x: number;
+        y: number;
+      };
 
-    const [path] = getSmoothStepPath({
-      sourceX,
-      sourceY,
-      sourcePosition: sp,
-      targetX,
-      targetY,
-      targetPosition: tp,
-      borderRadius: 8,
-    });
+      const sourceX = sAbs.x + handleX(sp, sw);
+      const sourceY = sAbs.y + handleY(sp, sh);
+      const targetX = tAbs.x + handleX(tp, tw);
+      const targetY = tAbs.y + handleY(tp, th);
 
-    return { id: e.id, d: path };
-  });
+      const [path] = getSmoothStepPath({
+        sourceX,
+        sourceY,
+        sourcePosition: sp,
+        targetX,
+        targetY,
+        targetPosition: tp,
+        borderRadius: 8,
+      });
+
+      return { id: e.id, d: path };
+    })
+    .filter((p): p is MiniMapEdgePath => p !== null);
+}
+
+const selector = (s: any): MiniMapState => {
+  const { x, y, w, h } = computeViewBox(s);
+  const paths = computeEdgePaths(s.edges, s.nodeLookup as Map<string, any>);
+  return { x, y, w, h, paths };
+};
+
+function areEqual(a: MiniMapState, b: MiniMapState) {
+  if (a.x !== b.x || a.y !== b.y || a.w !== b.w || a.h !== b.h) return false;
+  if (a.paths.length !== b.paths.length) return false;
+  for (let i = 0; i < a.paths.length; i++) {
+    if (a.paths[i].id !== b.paths[i].id || a.paths[i].d !== b.paths[i].d) {
+      return false;
+    }
+  }
+  return true;
+}
+
+export default function MiniMapEdges() {
+  const { x, y, w, h, paths } = useStore(selector, areEqual);
 
   return (
     <Panel
@@ -133,19 +166,16 @@ export default function MiniMapEdges() {
         viewBox={`${x} ${y} ${w} ${h}`}
         style={{ overflow: "visible" }}
       >
-        {edgePaths.map(
-          (p) =>
-            p && (
-              <path
-                key={p.id}
-                d={p.d}
-                stroke="#4fa3e3"
-                strokeWidth={1.5}
-                fill="none"
-                vectorEffect="non-scaling-stroke"
-              />
-            ),
-        )}
+        {paths.map((p) => (
+          <path
+            key={p.id}
+            d={p.d}
+            stroke="#4fa3e3"
+            strokeWidth={1.5}
+            fill="none"
+            vectorEffect="non-scaling-stroke"
+          />
+        ))}
       </svg>
     </Panel>
   );

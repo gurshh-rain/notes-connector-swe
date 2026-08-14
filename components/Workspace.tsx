@@ -27,7 +27,9 @@ import MindMapNode from "./MindMapNode";
 import GroupNode from "./GroupNode";
 import DocPanel from "./DocPanel";
 import MiniMapEdges from "./MiniMapEdges";
+import Cursors from "./Cursors";
 import type { MindMap, MindMapNode as MMNode } from "@/lib/types";
+import type { Awareness } from "y-protocols/awareness";
 import {
   PlusIcon,
   FitViewIcon,
@@ -61,11 +63,65 @@ interface Props {
   onGroupNodes: (nodeIds: string[]) => void;
   onAssignToGroup: (nodeId: string, groupId: string | null) => void;
   onToggleGroup: (id: string) => void;
+  awareness: Awareness | null;
 }
 
 const nodeTypes = { mindmap: MindMapNode, group: GroupNode };
 
 const ICONS = ["◍", "✦", "◆", "◇", "✚", "✱", "✸", "✺", "❖", "◈"];
+
+// Compute the bounding box of a set of child nodes so a group can wrap them.
+// Width/height can be supplied from an external map so the stored nodes (which
+// do not persist dimensions) can use the measured dimensions from React Flow.
+function depthOf(
+  node: { id: string; parentId?: string },
+  all: { id: string; parentId?: string }[],
+  cache = new Map<string, number>(),
+): number {
+  if (cache.has(node.id)) return cache.get(node.id)!;
+  if (!node.parentId) {
+    cache.set(node.id, 0);
+    return 0;
+  }
+  const parent = all.find((n) => n.id === node.parentId);
+  if (!parent) {
+    cache.set(node.id, 0);
+    return 0;
+  }
+  const d = depthOf(parent, all, cache) + 1;
+  cache.set(node.id, d);
+  return d;
+}
+
+function sortNodesByParent<T extends { id: string; parentId?: string }>(nodes: T[]): T[] {
+  const cache = new Map<string, number>();
+  return [...nodes].sort((a, b) => depthOf(a, nodes, cache) - depthOf(b, nodes, cache));
+}
+
+function computeGroupSize<T extends { id: string; position: { x: number; y: number }; width?: number; height?: number }>(
+  children: T[],
+  dimOverrides?: Map<string, { width?: number; height?: number }>,
+) {
+  const boxes = children.map((c) => {
+    const override = dimOverrides?.get(c.id);
+    const cw = override?.width ?? c.width ?? 180;
+    const ch = override?.height ?? c.height ?? 80;
+    return {
+      left: c.position.x,
+      top: c.position.y,
+      right: c.position.x + cw,
+      bottom: c.position.y + ch,
+    };
+  });
+  const minX = Math.min(0, ...boxes.map((b) => b.left));
+  const minY = Math.min(40, ...boxes.map((b) => b.top));
+  const maxX = Math.max(0, ...boxes.map((b) => b.right));
+  const maxY = Math.max(40, ...boxes.map((b) => b.bottom));
+  return {
+    width: Math.max(320, maxX - minX + 40),
+    height: Math.max(220, maxY - minY + 60),
+  };
+}
 
 export default function Workspace(props: Props) {
   return (
@@ -94,6 +150,7 @@ function WorkspaceInner({
   onGroupNodes,
   onAssignToGroup,
   onToggleGroup,
+  awareness,
 }: Props) {
   const [title, setTitle] = useState(map.title);
   const [openNodeId, setOpenNodeId] = useState<string | null>(null);
@@ -156,10 +213,21 @@ function WorkspaceInner({
   const isDraggingRef = useRef(false);
   const dataCacheRef = useRef<Map<string, Record<string, unknown>>>(new Map());
 
+  // Stable key that only changes when a node's width/height changes, so
+  // `storeNodes` can recompute group bounding boxes without reacting to every
+  // position change.
+  const dimensionsKey = useMemo(
+    () => flowNodes.map((f) => `${f.id}:${f.width ?? 0}:${f.height ?? 0}`).join("|"),
+    [flowNodes],
+  );
+
   // Build the "next" node list from the store (used by the sync effect).
   const storeNodes: Node[] = useMemo(() => {
     const cache = dataCacheRef.current;
-    return map.nodes.map((n) => {
+    const dimMap = new Map<string, { width?: number; height?: number }>(
+      flowNodes.map((f) => [f.id, { width: f.width, height: f.height }]),
+    );
+    return sortNodesByParent(map.nodes).map((n) => {
       const isGroup = n.isGroup ?? false;
       const parentGroup = n.parentId
         ? map.nodes.find((g) => g.id === n.parentId)
@@ -206,23 +274,17 @@ function WorkspaceInner({
           base.height = 48;
         } else {
           const children = map.nodes.filter((c) => c.parentId === n.id);
-          const minChildX = Math.min(0, ...children.map((c) => c.position.x));
-          const minChildY = Math.min(40, ...children.map((c) => c.position.y));
-          const maxChildX = Math.max(
-            0,
-            ...children.map((c) => c.position.x + 180),
-          );
-          const maxChildY = Math.max(
-            40,
-            ...children.map((c) => c.position.y + 80),
-          );
-          base.width = Math.max(320, maxChildX - minChildX + 40);
-          base.height = Math.max(220, maxChildY - minChildY + 60);
+          const { width, height } = computeGroupSize(children, dimMap);
+          base.width = width;
+          base.height = height;
         }
       }
       return base;
     });
-  }, [map.nodes, openNodeId]);
+    // `flowNodes` is read inside the memo but only dimensions trigger a
+    // recompute (captured by `dimensionsKey`), not every position change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map.nodes, openNodeId, dimensionsKey]);
 
   // Sync effect: when the store changes, update xyflow's state. While a
   // drag is in progress, we keep xyflow's live positions and only refresh
@@ -237,12 +299,20 @@ function WorkspaceInner({
         if (!isDraggingRef.current) {
           const expandedChanged =
             old.data?.expanded !== (sn.data as { expanded?: boolean }).expanded;
-          // Use store position and preserve width/height, but follow the
-          // store dimensions when a group is expanded or collapsed.
+          const isGroup = sn.type === "group";
+          // Groups should always wrap their children, but we also allow the
+          // user to resize a group to be larger. So for groups we grow to the
+          // store's computed size and preserve a manually larger size.
+          const shouldUseStoreWidth = isGroup
+            ? (sn.width && (old.width == null || expandedChanged || sn.width >= old.width))
+            : expandedChanged;
+          const shouldUseStoreHeight = isGroup
+            ? (sn.height && (old.height == null || expandedChanged || sn.height >= old.height))
+            : expandedChanged;
           return {
             ...sn,
-            width: expandedChanged ? sn.width : (old?.width ?? sn.width),
-            height: expandedChanged ? sn.height : (old?.height ?? sn.height),
+            width: shouldUseStoreWidth ? sn.width : (old?.width ?? sn.width),
+            height: shouldUseStoreHeight ? sn.height : (old?.height ?? sn.height),
           };
         }
         // Mid-drag: keep prev's positions and dimensions, refresh content.
@@ -553,6 +623,18 @@ function WorkspaceInner({
     [rf],
   );
 
+  const onPaneMouseMove = useCallback(
+    (event: React.MouseEvent) => {
+      if (!awareness) return;
+      const pos = rf.screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
+      });
+      awareness.setLocalStateField("cursor", pos);
+    },
+    [awareness, rf],
+  );
+
   return (
     <div className="workspace">
       <div className="workspace__header">
@@ -696,6 +778,7 @@ function WorkspaceInner({
           onConnectEnd={onConnectEnd}
           onSelectionChange={onSelectionChange}
           onInit={onInit}
+          onPaneMouseMove={onPaneMouseMove}
           fitView
           proOptions={{ hideAttribution: true }}
           defaultEdgeOptions={{ type: "smoothstep" }}
@@ -722,6 +805,7 @@ function WorkspaceInner({
             showInteractive={false}
             showFitView={false}
           />
+          <Cursors awareness={awareness} />
         </ReactFlow>
 
         {map.nodes.length === 0 && (

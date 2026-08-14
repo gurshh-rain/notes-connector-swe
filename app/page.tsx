@@ -24,7 +24,7 @@ export default function Home() {
   if (!m.ready) {
     return (
       <div className="app-shell">
-        <NavBar />
+        <NavBar roomId={m.roomId} onShare={m.shareRoom} />
         <Sidebar
           maps={[]}
           activeId={null}
@@ -46,7 +46,10 @@ export default function Home() {
 
   return (
     <div className="app-shell">
-      <NavBar />
+      <NavBar
+        roomId={m.roomId}
+        onShare={m.shareRoom}
+      />
       <Sidebar
         maps={m.maps}
         activeId={m.activeId}
@@ -90,6 +93,7 @@ export default function Home() {
           onGroupNodes={m.groupNodes}
           onAssignToGroup={m.assignToGroup}
           onToggleGroup={m.toggleGroup}
+          awareness={m.awareness}
         />
       ) : (
         <div className="workspace">
