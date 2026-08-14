@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ReactFlow,
   Controls,
@@ -61,7 +61,11 @@ interface Props {
   onAddGroup: (position?: { x: number; y: number }) => string;
   onAddChildToGroup: (groupId: string, position?: { x: number; y: number }) => string;
   onGroupNodes: (nodeIds: string[]) => void;
-  onAssignToGroup: (nodeId: string, groupId: string | null) => void;
+  onAssignToGroup: (
+    nodeId: string,
+    groupId: string | null,
+    position?: { x: number; y: number },
+  ) => void;
   onToggleGroup: (id: string) => void;
   awareness: Awareness | null;
 }
@@ -201,8 +205,16 @@ function WorkspaceInner({
   // are synced from the store into `nodes`/`edges` via the effect below.
   const [flowNodes, setFlowNodes, onFlowNodesChange] = useNodesState<Node>([]);
   const flowNodesRef = useRef<Node[]>([]);
-  useEffect(() => {
+  const nodeDimsRef = useRef<Map<string, { width: number; height: number }>>(
+    new Map(),
+  );
+  useLayoutEffect(() => {
     flowNodesRef.current = flowNodes;
+    for (const f of flowNodes) {
+      if (typeof f.width === "number" && typeof f.height === "number") {
+        nodeDimsRef.current.set(f.id, { width: f.width, height: f.height });
+      }
+    }
   }, [flowNodes]);
   const [flowEdges, setFlowEdges, onFlowEdgesChange] = useEdgesState<Edge>([]);
 
@@ -350,6 +362,24 @@ function WorkspaceInner({
     (changes) => {
       let sawDragEnd = false;
       const removedIds: string[] = [];
+
+      // Update the dimension cache for any resize changes in this batch so
+      // subsequent position clamps in the same batch use the new size.
+      for (const c of changes) {
+        if (c.type === "dimensions" && c.dimensions && c.setAttributes !== false) {
+          const child = flowNodesRef.current.find((f) => f.id === c.id);
+          if (child) {
+            const oldW = child.width ?? 180;
+            const oldH = child.height ?? 80;
+            const newW =
+              c.setAttributes === "height" ? oldW : (c.dimensions?.width ?? oldW);
+            const newH =
+              c.setAttributes === "width" ? oldH : (c.dimensions?.height ?? oldH);
+            nodeDimsRef.current.set(c.id, { width: newW, height: newH });
+          }
+        }
+      }
+
       for (const c of changes) {
         if (c.type === "position" && c.position) {
           const child = flowNodesRef.current.find((f) => f.id === c.id);
@@ -357,18 +387,19 @@ function WorkspaceInner({
             child?.parentId &&
             flowNodesRef.current.find((f) => f.id === child.parentId);
           if (parent) {
+            const childDim = nodeDimsRef.current.get(c.id);
             const pw = parent.width ?? 320;
             const ph = parent.height ?? 220;
-            const cw = child.width ?? 180;
-            const ch = child.height ?? 80;
+            const cw = childDim?.width ?? child?.width ?? 180;
+            const ch = childDim?.height ?? child?.height ?? 80;
             c.position = {
               x: Math.max(0, Math.min(c.position.x, pw - cw)),
               y: Math.max(40, Math.min(c.position.y, ph - ch)),
             };
           }
-          if (c.dragging) {
+          if (c.dragging === true) {
             isDraggingRef.current = true;
-          } else {
+          } else if (c.dragging === false) {
             // drag end — commit final position to store
             isDraggingRef.current = false;
             onMoveNodeRef.current(c.id, c.position);
@@ -492,7 +523,12 @@ function WorkspaceInner({
         );
 
         if (target) {
-          onAssignToGroupRef.current(n.id, target.id);
+          const tw = target.width ?? 320;
+          const th = target.height ?? 220;
+          const targetAbs = getAbs(target);
+          const relX = Math.max(0, Math.min(abs.x - targetAbs.x, tw - nw));
+          const relY = Math.max(40, Math.min(abs.y - targetAbs.y, th - nh));
+          onAssignToGroupRef.current(n.id, target.id, { x: relX, y: relY });
         } else if (n.parentId) {
           const parent = flow.find((f) => f.id === n.parentId);
           if (!parent) continue;

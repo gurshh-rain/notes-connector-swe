@@ -169,6 +169,7 @@ export function useMaps(): UseMaps {
     if (roomId) {
       const room = getCollabRoom(roomId);
       roomRef.current = room;
+      room.provider.connect();
       setAwareness(room.awareness);
 
       const apply = () => {
@@ -260,6 +261,7 @@ export function useMaps(): UseMaps {
     const currentRoomId = roomRef.current ? roomId : null;
     if (currentRoomId) {
       if (roomRef.current) {
+        roomRef.current.provider.connect();
         setMapsYjs(roomRef.current, mapsRef.current);
         setActiveIdYjs(roomRef.current, activeIdRef.current);
       }
@@ -500,7 +502,7 @@ export function useMaps(): UseMaps {
   );
 
   const assignToGroup = useCallback(
-    (nodeId: string, groupId: string | null) => {
+    (nodeId: string, groupId: string | null, position?: { x: number; y: number }) => {
       const a = activeIdRef.current;
       if (!a) return;
       const map = mapsRef.current.find((m) => m.id === a);
@@ -546,7 +548,7 @@ export function useMaps(): UseMaps {
               ? {
                   ...x,
                   parentId: groupId,
-                  position: {
+                  position: position ?? {
                     x: oldAbs.x - gAbs.x,
                     y: oldAbs.y - gAbs.y,
                   },
